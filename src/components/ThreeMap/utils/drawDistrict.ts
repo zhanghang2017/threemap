@@ -194,6 +194,7 @@ interface DrawDistrictResult {
   advanceMeshGroup: THREE.Group;
   districtData: GeoJsonProperties[];
   _realShape: () => Promise<THREE.Group>;
+  _cancelRealShape: () => void;
   mapTexture: THREE.Texture | null;
 }
 
@@ -453,8 +454,6 @@ export const drawDistrict = function (this: ThreeMapContext, data: DataItem[], o
         scaleY = this.uvScale!.y;
       }
 
-      console.log(scaleX, scaleY, this.uvScale);
-
       // 纹理配置：
       mapTexture.flipY = true; // Y 轴翻转（匹配地理坐标系）
       mapTexture.wrapS = THREE.RepeatWrapping; // 水平重复
@@ -483,10 +482,13 @@ export const drawDistrict = function (this: ThreeMapContext, data: DataItem[], o
    *
    * @returns Promise<THREE.Group> - 包含所有 ExtrudeGeometry Mesh 的 Group
    */
+  let _realShapeTimerId: ReturnType<typeof setTimeout> | null = null;
+
   const _realShape = (): Promise<THREE.Group> => {
     return new Promise((resolve) => {
       // setTimeout 17ms 约等于 1 帧（60fps），让浏览器先渲染平面版
-      setTimeout(() => {
+      _realShapeTimerId = setTimeout(() => {
+        _realShapeTimerId = null;
         if (!isClearRef.isClear) {
           // 调用 drawShapeAssist 批量构建 ExtrudeGeometry
           const group = drawShapeAssist(shapeData);
@@ -499,7 +501,14 @@ export const drawDistrict = function (this: ThreeMapContext, data: DataItem[], o
     });
   };
 
-  return { mapUf, meshGroup, advanceMeshGroup, districtData, _realShape, mapTexture };
+  const _cancelRealShape = (): void => {
+    if (_realShapeTimerId !== null) {
+      clearTimeout(_realShapeTimerId);
+      _realShapeTimerId = null;
+    }
+  };
+
+  return { mapUf, meshGroup, advanceMeshGroup, districtData, _realShape, _cancelRealShape, mapTexture };
 };
 
 /**

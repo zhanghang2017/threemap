@@ -4,6 +4,9 @@ import light from "@/assets/images/default_light.png";
 import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import type { ThreeMapContext, CylinderSeriesOptions, MapConfig } from "../types";
 
+// 模块级别加载纹理，避免每次 setOption() 创建新纹理实例导致内存泄漏
+const towerTexture = new THREE.TextureLoader().load(light);
+
 /**
  * 创建圆柱材质 - 应用垂直渐变色 Shader
  *
@@ -113,7 +116,7 @@ export const drawCylinder = function (this: ThreeMapContext, options: CylinderSe
   // 如果是 tower 模式,预加载发光纹理
   let texture: THREE.Texture | null = null;
   if (mode === "tower") {
-    texture = new THREE.TextureLoader().load(light);
+    texture = towerTexture;
   }
 
   data.forEach((it) => {

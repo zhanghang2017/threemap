@@ -14,11 +14,9 @@ import { drawPrism } from "./utils/drawPrism";
 import { drawFlight, updateMiniFly } from "./utils/drawFlight";
 import { drawScatter } from "./utils/drawScatter";
 import { drawCylinder } from "./utils/drawCylinder";
-
 import { addTooltip, tooltipRender } from "./utils/addTooltip";
 import { drawGrid } from "./utils/drawGrid";
 import { drawFoundation } from "./utils/drawFoundation";
-
 import { register } from "./utils/register";
 
 import { uuid, centerOfMass, bbox, featureCollection } from "./utils/helpers";
@@ -30,7 +28,6 @@ import type {
   MapUniform,
   TooltipInstance,
   CacheModel,
-  SeriesOptions,
   MarkerSeriesOptions,
   PrismSeriesOptions,
   FlightSeriesOptions,
@@ -38,16 +35,11 @@ import type {
   CylinderSeriesOptions,
 } from "./types";
 
-interface ThreeMapConstructorOptions {
-  isDesign?: boolean;
-}
-
 export default class ThreeMap {
   el: HTMLElement;
   innerWidth: number;
   innerHeight: number;
 
-  isDesign: boolean;
   isInitCamera: boolean;
   registerList: Map<string, [GeoJsonFeatureCollection, GeoJsonFeatureCollection, ReturnType<typeof geoMercator>]>;
   scene: THREE.Scene | null;
@@ -67,11 +59,8 @@ export default class ThreeMap {
   seriesGroup: THREE.Group;
   environmentGroup: THREE.Group;
   refresh: boolean;
-
   scale: number;
-
   cacheModel: CacheModel | null;
-
   foundationIns: any[];
   isClear: boolean;
 
@@ -91,6 +80,9 @@ export default class ThreeMap {
   bloomComposer: EffectComposer | null;
   finalComposer: EffectComposer | null;
 
+  resizeObserver: ResizeObserver | null;
+  _cancelRealShape: (() => void) | null;
+
   options: ThreeMapOptions | null;
   mapKey: string;
   mapUf: MapUniform | undefined;
@@ -100,12 +92,11 @@ export default class ThreeMap {
   /**
    * ThreeMap 核心实例构造：初始化场景、渲染器、交互控制器和鼠标事件。
    */
-  constructor(el: HTMLElement, tooltipDom: HTMLElement, options: ThreeMapConstructorOptions = {}) {
+  constructor(el: HTMLElement, tooltipDom: HTMLElement) {
     this.el = el;
     this.innerWidth = el.offsetWidth;
     this.innerHeight = el.offsetHeight;
 
-    this.isDesign = !!options.isDesign;
     this.isInitCamera = false;
     this.registerList = new Map();
     this.scene = null;
@@ -149,6 +140,8 @@ export default class ThreeMap {
     this.lights = [];
     this.clock = null;
     this.raycaster = null;
+    this.resizeObserver = null;
+    this._cancelRealShape = null;
 
     const onPointerMove = (mouseEvent: MouseEvent): void => {
       this.pointer!.x = (mouseEvent.offsetX / this.innerWidth) * 2 - 1;
@@ -211,6 +204,9 @@ export default class ThreeMap {
     this.setCssRenderer();
     this.addHelper();
     this.setController();
+
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.el);
   }
 
   /**
@@ -225,13 +221,14 @@ export default class ThreeMap {
     this.environmentGroup = new THREE.Group();
     this.scene!.add(this.environmentGroup);
     this.options = options;
+
     const code = options.map + "";
     const camera = options.camera;
     const { x, y, z } = camera;
     this.setEnvironment(options);
     this.setFoundation(options);
 
-    if ((this.isDesign && !this.isInitCamera) || !this.isDesign) {
+    if (!this.isInitCamera) {
       this.setCamera(x, y, z);
     }
     this.isInitCamera = true;
@@ -551,7 +548,8 @@ export default class ThreeMap {
    * 绘制行政区主体（顶面/侧面/标签）并维护缩放缓存模型。
    */
   drawDistrictArea(data: ThreeMapOptions["data"], features: GeoJsonFeatureCollection["features"], options: ThreeMapOptions): void {
-    const { meshGroup, advanceMeshGroup, mapUf, districtData, _realShape, mapTexture } = drawDistrict.call(this as any, data, options, features, options.config);
+    const { meshGroup, advanceMeshGroup, mapUf, districtData, _realShape, _cancelRealShape, mapTexture } = drawDistrict.call(this as any, data, options, features, options.config);
+    this._cancelRealShape = _cancelRealShape;
     this.mapTextures.push(mapTexture);
     this.mapUf = mapUf;
     this.districtData = districtData;
@@ -709,14 +707,22 @@ export default class ThreeMap {
       this.scene = null;
     }
 
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
     if (this.renderer) {
+      this.el.removeChild(this.renderer.domElement);
       this.renderer.dispose();
       this.renderer.forceContextLoss();
-      (this.renderer as any).domElement = null;
       this.renderer = null;
     }
 
-    this.CSS2DRenderer && ((this.CSS2DRenderer as any).domElement = null);
+    if (this.CSS2DRenderer) {
+      this.el.removeChild(this.CSS2DRenderer.domElement);
+      this.CSS2DRenderer = null;
+    }
     (["bloomComposer", "finalComposer", "axesHelper", "controls"] as const).forEach((key) => {
       const obj = (this as any)[key];
       if (obj && typeof obj.dispose === "function") {
@@ -734,7 +740,6 @@ export default class ThreeMap {
     this.districtData = [];
     this.el = null as any;
     this.tooltipDom = null as any;
-    this.CSS2DRenderer = null;
     this.camera = null;
     this.pointer = null;
   }
@@ -744,30 +749,37 @@ export default class ThreeMap {
    */
   clearMap(): void {
     this.isClear = true;
-    const environmentGroup = this.environmentGroup;
-    environmentGroup.traverse((obj: any) => {
-      if (obj.type === "Mesh") {
-        obj.geometry.dispose?.();
-        obj.material.dispose?.();
-        obj.material.map && obj.material.map.dispose();
+    if (this._cancelRealShape) {
+      this._cancelRealShape();
+      this._cancelRealShape = null;
+    }
+    const disposeObject = (obj: any): void => {
+      if (obj.geometry) {
+        obj.geometry.dispose();
       }
-    });
+      if (obj.material) {
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach((m: any) => {
+            m.map?.dispose();
+            m.dispose?.();
+          });
+        } else {
+          obj.material.map?.dispose();
+          obj.material.dispose?.();
+        }
+      }
+    };
+
+    const environmentGroup = this.environmentGroup;
+    environmentGroup.traverse(disposeObject);
     if (environmentGroup.children.length) {
       environmentGroup.children = [];
     }
     const seriesGroup = this.seriesGroup;
     seriesGroup.traverse((obj: any) => {
-      if (obj.type === "Mesh") {
-        obj.geometry.dispose?.();
-        obj.material.dispose?.();
-        if (Array.isArray(obj.material)) {
-          obj.material.forEach((material: any) => {
-            material.dispose?.();
-            if (material.map) material.map.dispose();
-          });
-        }
-      } else if (["label", "marker", "prism"].includes(obj._type)) {
-        obj.element.remove();
+      disposeObject(obj);
+      if (["label", "marker", "prism", "scatter"].includes(obj._type)) {
+        obj.element?.remove();
       }
     });
     if (seriesGroup.children.length) {

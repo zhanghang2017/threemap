@@ -13,17 +13,18 @@ import type { ThreeMapOptions, GeoJsonFeatureCollection } from "./types";
 // ==================== Types ====================
 interface AreaProp {
   area: string;
-  showName: string;
+  name: string;
 }
 
 interface MapListItem {
   name: string;
   value: string;
+  mapJson: GeoJsonFeatureCollection;
 }
 
 type SeriesType = "marker" | "flight" | "prism" | "scatter" | "cylinder";
 
-const areaRef = ref<AreaProp>({ area: "100000", showName: "中国" });
+const areaRef = ref<AreaProp>({ area: "100000", name: "中国" });
 const threeOptionsRef = ref<ThreeMapOptions>(createDefaultOptions());
 
 // ==================== Refs ====================
@@ -94,6 +95,7 @@ function backMapFn(): void {
   const mapName = o.name;
   (threeOptionsRef.value as any).map = code;
   (threeOptionsRef.value as any).mapName = mapName;
+  currentMapJson.value = o.mapJson;
   isInHole.value = true;
   reset();
 }
@@ -179,15 +181,19 @@ function handleInChangeMap(code: string, mapName: string): void {
     isInHole.value = true;
     map.registerMap(code, code, threeOptionsRef.value.config).then((mapJson) => {
       currentMapJson.value = mapJson;
+
       mapList.value.push({
         name: mapName,
         value: code,
+        mapJson: mapJson,
       });
+
       (threeOptionsRef.value as any).map = code;
       (threeOptionsRef.value as any).mapName = mapName || code;
 
       threeOptionsRef.value.series.forEach((it: any) => {
-        it.data = createdDataRandom(mapJson, it.type);
+        // 下钻清空数据，避免数据与区域不匹配导致的显示问题，用户可以选择重新生成数据或手动调整。
+        it.data = [];
       });
       reset();
     });
@@ -216,7 +222,7 @@ function createSeriesByType(type: SeriesType): any {
  * 面板配置变更后强制全量刷新，保证环境层与系列层都生效。
  */
 function applyPanelChanges(): void {
-  isInHole.value = false;
+  // isInHole.value = false;
   reset();
 }
 
@@ -242,6 +248,20 @@ function removeSeries(index: number): void {
 }
 
 /**
+ * 为地图所有区域生成随机数据并写入 options.data。
+ */
+function generateMapData(): void {
+  if (!currentMapJson.value) return;
+  const { min, max } = threeOptionsRef.value.itemStyle.range;
+  threeOptionsRef.value.data = currentMapJson.value.features.map((feature) => ({
+    district: feature.properties.adcode,
+    name: feature.properties.name,
+    value: Math.floor(min + (max - min) * Math.random()),
+  }));
+  applyPanelChanges();
+}
+
+/**
  * 重新生成指定系列的数据并刷新显示。
  */
 function regenerateSeriesData(index: number): void {
@@ -254,23 +274,25 @@ function regenerateSeriesData(index: number): void {
 
 // ==================== Lifecycle ====================
 onMounted(() => {
-  map = new ThreeMap(mapRef.value!, tooltipRef.value!, { isDesign: false });
+  map = new ThreeMap(mapRef.value!, tooltipRef.value!);
 
-  const { area, showName } = areaRef.value;
+  const { area, name } = areaRef.value;
   const code = area;
 
   (threeOptionsRef.value as any).map = area;
-  (threeOptionsRef.value as any).mapName = showName;
-
-  mapList.value.push({
-    name: showName,
-    value: code,
-  });
+  (threeOptionsRef.value as any).mapName = name;
 
   map
     .registerMap(code, code, threeOptionsRef.value.config)
     .then((mapJson) => {
       currentMapJson.value = mapJson;
+
+      mapList.value.push({
+        name,
+        value: code,
+        mapJson: mapJson,
+      });
+
       threeOptionsRef.value.series.forEach((it: any) => {
         if (!it.data || !it.data.length) {
           it.data = createdDataRandom(mapJson, it.type);
@@ -305,10 +327,11 @@ onBeforeUnmount(() => {
       @add-series="addSeries"
       @remove-series="removeSeries"
       @regenerate-series="regenerateSeriesData"
+      @generate-data="generateMapData"
     />
 
     <!-- 视觉映射 -->
-    <div class="three-visual-wrap">
+    <div class="three-visual-wrap" v-if="range.show">
       <div class="three-visual">
         <div class="three-visual-gradient" v-if="range.mode === 'range'">
           <div class="gradient" :style="getVisualMapColumnStyle"></div>
@@ -332,7 +355,7 @@ onBeforeUnmount(() => {
 
     <!-- 返回按钮 -->
     <div class="back-three-map" @click="backMapFn" v-if="showBack">
-      <span style="margin-right: 4px">< back </span>
+      <span style="margin-right: 4px">返回上一级 </span>
     </div>
   </div>
 </template>
@@ -379,45 +402,57 @@ onBeforeUnmount(() => {
   bottom: 16px;
 }
 
-.three-visual {
+.three-visual-wrap .three-visual {
   color: #fff;
   font-size: 12px;
 }
 
-.three-visual-gradient {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.three-visual-gradient .gradient {
-  width: 20px;
-  height: 120px;
-  border-radius: 2px;
-}
-
-.three-visual-gradient .high,
-.three-visual-gradient .low {
+.three-visual-wrap .three-visual .three-visual-name {
   text-align: center;
-  margin: 4px 0;
 }
 
-.three-visual-color-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.three-visual-wrap .three-visual .three-visual-gradient {
+  position: relative;
+  margin: 20px;
 }
 
-.three-visual-color {
+.three-visual-wrap .three-visual .three-visual-gradient .gradient {
+  width: 24px;
+  height: 150px;
+}
+
+.three-visual-wrap .three-visual .three-visual-gradient .high {
+  position: absolute;
+  letter-spacing: 0;
+  line-height: 1.1;
+  right: 0;
+  top: 0;
+  transform: translate(110%, -50%);
+}
+
+.three-visual-wrap .three-visual .three-visual-gradient .low {
+  position: absolute;
+  line-height: 1.1;
+  letter-spacing: 0;
+  right: 0;
+  bottom: 2px;
+  transform: translate(110%, 50%);
+}
+
+.three-visual-wrap .three-visual .three-visual-color-group {
+  padding: 20px;
+}
+
+.three-visual-wrap .three-visual .three-visual-color {
   display: flex;
   align-items: center;
-  gap: 6px;
+  margin: 0 10px 10px 0;
 }
 
-.three-visual-color .color {
-  width: 16px;
+.three-visual-wrap .three-visual .three-visual-color .color {
+  width: 20px;
   height: 16px;
-  border-radius: 2px;
+  margin-right: 6px;
 }
 
 /* ==================== 返回按钮 ==================== */

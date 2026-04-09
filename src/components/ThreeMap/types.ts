@@ -1,6 +1,4 @@
 import type * as THREE from "three";
-import type { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 
 // ==================== GeoJSON ====================
 

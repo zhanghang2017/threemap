@@ -3,7 +3,7 @@
  * @Description: 创建 ThreeMap 的默认全局配置选项
  * @Date: 2026-04-07 15:33:26
  * @LastEditors: zhanghang
- * @LastEditTime: 2026-04-08 18:34:02
+ * @LastEditTime: 2026-04-09 09:42:58
  */
 import type { ThreeMapOptions } from "../types";
 import createLabel from "./createLabel";
@@ -127,7 +127,7 @@ const createDefaultOptions = (): ThreeMapOptions => {
     itemStyle: {
       range: {
         // 数据可视化映射配置
-        show: true, // 是否启用数据映射（影响区域颜色）
+        show: false, // 是否启用数据映射（影响区域颜色）
         mode: "range", // 映射模式：'range' = 连续渐变 | 'separate' = 分段规则
         rules: [
           // 分段规则数组（mode='separate' 时使用）

@@ -14,11 +14,13 @@ const emit = defineEmits<{
   "add-series": [type: SeriesType];
   "remove-series": [index: number];
   "regenerate-series": [index: number];
+  "generate-data": [];
 }>();
 
 const panelOpen = ref(true);
 const basePanelOpen = ref(true);
 const seriesPanelOpen = ref(true);
+const rangePanelOpen = ref(false);
 const newSeriesType = ref<SeriesType>("marker");
 
 const topColorHex = computed({
@@ -73,6 +75,30 @@ function removeSeries(index: number): void {
 
 function regenerateSeriesData(index: number): void {
   emit("regenerate-series", index);
+}
+
+function updateRangeColor(index: 0 | 1, hex: string): void {
+  props.options.itemStyle.range.color[index] = hex;
+  emitApply();
+}
+
+function updateRuleColor(index: number, hex: string): void {
+  props.options.itemStyle.range.rules[index]!.color = hex;
+  emitApply();
+}
+
+function addRule(): void {
+  props.options.itemStyle.range.rules.push({ value: 0, color: "#27F4FF", label: ">=0" });
+  emitApply();
+}
+
+function removeRule(index: number): void {
+  props.options.itemStyle.range.rules.splice(index, 1);
+  emitApply();
+}
+
+function generateData(): void {
+  emit("generate-data");
 }
 
 function colorToHex(color: string): string {
@@ -253,6 +279,68 @@ function updateColorByHex(target: "topColor" | "sideColor" | "uColor" | "outLine
               <input type="color" v-model="wallColorHex" />
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="panel-group">
+        <button class="panel-group-header" @click="rangePanelOpen = !rangePanelOpen">
+          <span>色阶图</span>
+          <span>{{ rangePanelOpen ? "-" : "+" }}</span>
+        </button>
+        <div v-if="rangePanelOpen" class="panel-group-body">
+          <div class="panel-item toggle">
+            <span class="panel-label">显示色阶:</span>
+            <input type="checkbox" v-model="props.options.itemStyle.range.show" @change="emitApply" />
+          </div>
+          <div class="panel-item">
+            <span class="panel-label">映射模式:</span>
+            <select class="range-select" v-model="props.options.itemStyle.range.mode" @change="emitApply">
+              <option value="range">连续渐变</option>
+              <option value="separate">分段规则</option>
+            </select>
+          </div>
+          <template v-if="props.options.itemStyle.range.mode === 'range'">
+            <div class="panel-item">
+              <span class="panel-label">渐变起色:</span>
+              <div class="color-input-group">
+                <input type="color" :value="props.options.itemStyle.range.color[0]" @input="updateRangeColor(0, ($event.target as HTMLInputElement).value)" />
+              </div>
+            </div>
+            <div class="panel-item">
+              <span class="panel-label">渐变终色:</span>
+              <div class="color-input-group">
+                <input type="color" :value="props.options.itemStyle.range.color[1]" @input="updateRangeColor(1, ($event.target as HTMLInputElement).value)" />
+              </div>
+            </div>
+            <div class="panel-item">
+              <span class="panel-label">最小值:</span>
+              <input class="number-input" type="number" v-model.number="props.options.itemStyle.range.min" @change="emitApply" />
+            </div>
+            <div class="panel-item">
+              <span class="panel-label">最大值:</span>
+              <input class="number-input" type="number" v-model.number="props.options.itemStyle.range.max" @change="emitApply" />
+            </div>
+            <div class="panel-item">
+              <span class="panel-label">高值标签:</span>
+              <input class="text-input" type="text" v-model="props.options.itemStyle.range.visualMap.maxText" @change="emitApply" />
+            </div>
+            <div class="panel-item">
+              <span class="panel-label">低值标签:</span>
+              <input class="text-input" type="text" v-model="props.options.itemStyle.range.visualMap.minText" @change="emitApply" />
+            </div>
+          </template>
+          <template v-else-if="props.options.itemStyle.range.mode === 'separate'">
+            <div class="range-rules">
+              <div class="range-rule-item" v-for="(rule, ri) in props.options.itemStyle.range.rules" :key="ri">
+                <input class="number-input" type="number" v-model.number="rule.value" @change="emitApply" placeholder="阈值" />
+                <input type="color" :value="rule.color" @input="updateRuleColor(ri, ($event.target as HTMLInputElement).value)" />
+                <input class="text-input" type="text" v-model="rule.label" @change="emitApply" placeholder="标签" />
+                <button class="three-btn danger" @click="removeRule(ri)">-</button>
+              </div>
+            </div>
+            <button class="three-btn" @click="addRule">+ 新增规则</button>
+          </template>
+          <button class="three-btn full-btn" @click="generateData">生成数据</button>
         </div>
       </div>
 
@@ -551,5 +639,61 @@ function updateColorByHex(target: "topColor" | "sideColor" | "uColor" | "outLine
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
+}
+
+.range-select {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.range-select option {
+  background: #0b2a55;
+  color: #f2f7ff;
+}
+
+.text-input {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 6px;
+  outline: none;
+  min-width: 0;
+}
+
+.range-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.range-rule-item {
+  display: grid;
+  grid-template-columns: 60px 36px 1fr 28px;
+  gap: 4px;
+  align-items: center;
+}
+
+.range-rule-item input[type="color"] {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.full-btn {
+  width: 100%;
+  text-align: center;
+  padding: 5px 0;
+  margin-top: 2px;
 }
 </style>

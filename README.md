@@ -22,6 +22,7 @@
     - [启动开发服务器](#启动开发服务器)
     - [构建生产包](#构建生产包)
   - [组件使用](#组件使用)
+    - [核心类 `ThreeMap` 所有功能都包含在该类（自定义集成）](#核心类-threemap--所有功能都包含在该类自定义集成)
   - [配置项（Options）详解](#配置项options详解)
     - [config — 地图基础配置](#config--地图基础配置)
     - [camera — 相机位置](#camera--相机位置)
@@ -116,38 +117,48 @@ npm run build
 
 ## 组件使用
 
+### 核心类 `ThreeMap` 所有功能都包含在该类（自定义集成）
+
+如需自行控制数据、事件和下钻逻辑，参考`index.vue` , 直接使用底层 `ThreeMap.ts` 类：
+
 ```vue
 <template>
-  <ThreeMap
-    style="width: 100%; height: 600px"
-    :options="options"
-    @click="onDistrictClick"
-    @dblclick="onDistrictDblClick"
-  />
+  <div ref="mapRef" style="width: 100%; height: 600px" />
+  <div ref="tooltipRef" />
 </template>
 
 <script setup lang="ts">
-import ThreeMap from '@/components/ThreeMap/index.vue'
-import { createDefaultOptions } from '@/components/ThreeMap/options/threeOption'
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import ThreeMap from '@/components/ThreeMap/ThreeMap'
+import createDefaultOptions from '@/components/ThreeMap/options/threeOption'
 
-const options = ref(createDefaultOptions())
+const mapRef = ref<HTMLDivElement | null>(null)
+const tooltipRef = ref<HTMLDivElement | null>(null)
+let map: ThreeMap | null = null
 
-// 注册中国地图（adcode: '100000'）
-// 注册在组件内部 onMounted 中自动完成，也可以通过 mapCode prop 控制
+onMounted(async () => {
+  map = new ThreeMap(mapRef.value!, tooltipRef.value!)
+  const options = createDefaultOptions()
 
-function onDistrictClick(data: any) {
-  console.log('clicked district:', data.name, data.adcode)
-}
+  const mapJson = await map.registerMap('100000', '100000', options.config)
 
-function onDistrictDblClick(data: any) {
-  // 双击自动下钻到下一级地图
-  console.log('drill into:', data.name)
-}
+  map.on('click', (data: any) => {
+    console.log('点击区域:', data.name, data.adcode)
+  })
+  map.on('dblclick', (data: any) => {
+    // 手动实现下钻：调用 registerMap + setOption
+    console.log('下钻进入:', data.name)
+  })
+
+  map.setOption({ ...options, map: '100000' })
+})
+
+onBeforeUnmount(() => {
+  map?.destroyMap()
+  map = null
+})
 </script>
 ```
-
-> `ThreeMap/index.vue` 内置了地图注册、下钻交互、控制面板与视觉映射条，开箱即用。
 
 ---
 
@@ -556,7 +567,7 @@ series: [
 
 ## 事件 API
 
-通过 `ThreeMap` 类的 `on()` / `off()` 方法注册事件（组件内部已封装为 Vue emit）：
+事件系统由 `ThreeMap` 类提供，`index.vue` 在内部使用 `map.on('dblclick', ...)` 消费了下钻事件。自定义集成时通过 `on()` / `off()` 注册：
 
 | 事件       | 触发时机             | 回调参数                       |
 | ---------- | -------------------- | ------------------------------ |
